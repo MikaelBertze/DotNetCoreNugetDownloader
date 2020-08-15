@@ -1,2 +1,2 @@
 # DotNetCoreNugetDownloader
-A simple downoader for .net core nugets
+A tool for downloading .net Core nugets. Intended to be used for creating .net Core only nuget feeds.
