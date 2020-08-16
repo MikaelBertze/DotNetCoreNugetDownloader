@@ -60,8 +60,15 @@ namespace NuGet.Protocol.Samples
                         {
                             var filename = $"{package.Identity.Id}.{version.Version.ToString()}.nupkg";
                             var cache = new SourceCacheContext();
-                            var downloader = await findPackageresource.GetPackageDownloaderAsync(package.Identity, cache, logger, cancellationToken);
-                            downloadTasks.Add(downloader.CopyNupkgFileToAsync(Path.Join("packages", filename), cancellationToken));
+                            
+                            var copyTask = Task.Run(async () => {
+                                using(var stream = File.Open(Path.Join("packages", filename), FileMode.Create)) {
+                                    await findPackageresource.CopyNupkgToStreamAsync(package.Identity.Id, version.Version, stream, cache, logger, cancellationToken);
+                                }
+                            });
+                            //var downloader = await findPackageresource.GetPackageDownloaderAsync(package.Identity, cache, logger, cancellationToken);
+                            //downloadTasks.Add(downloader. CopyNupkgFileToAsync(Path.Join("packages", filename), cancellationToken));
+                            downloadTasks.Add(copyTask);
                         }
                         counter++;
                         if (counter >= maxPackages)
