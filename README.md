@@ -1,2 +1,6 @@
 # DotNetCoreNugetDownloader
-A tool for downloading .net Core nugets. Intended to be used for creating .net Core only nuget feeds.
+Somtimes you don't want to use nuget.org, but still use .NET Core or .NET Standard. This tool will download all nugets
+that is publiched by the publicher dotnetframework.
+
+
+
