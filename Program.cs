@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
 using NuGet.Common;
-using NuGet.Configuration;
 using NuGet.Packaging;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
@@ -30,19 +29,25 @@ namespace NuGet.Protocol.Samples
 
         [Option('p', "prereleases", Required=false, HelpText="Include prereleases", Default=false)]
         public bool Prerelease {get;set;}
+
+        [Option('d', "dryrun", Required=false, HelpText="No upload to target feed", Default=false)]
+        public bool Dryrun {get;set;}
     }
 
     public class Program
     {
-        private static SourceRepository _sourceRepository;
-        private static SourceRepository _targetRepository;
+        private static string _sourceRepositoryUrl;
 
         private static string _targetRepositoryUrl;
 
         private static string _targetApiKey;
         private static bool _preReleases;
 
+        private static bool _dryRun;
+
         private static string _searchString;
+
+        private static ConcurrentBag<(string, bool)> _bag;
 
 
         public static async Task Main(string[] args)
@@ -53,17 +58,17 @@ namespace NuGet.Protocol.Samples
             {
                 return;
             }
-            
-            _sourceRepository = Repository.Factory.GetCoreV3(arguments.SourceNugetRepositoryUrl);
-            _targetRepository = Repository.Factory.GetCoreV3(arguments.TargetNugetRepositoryUrl);
+            _bag = new ConcurrentBag<(string, bool)>();
             _targetRepositoryUrl = arguments.TargetNugetRepositoryUrl;
+            _sourceRepositoryUrl = arguments.SourceNugetRepositoryUrl;
             _preReleases = arguments.Prerelease;
             _targetApiKey = arguments.API_KEY;
             _searchString = arguments.SearchString;
+            _dryRun = arguments.Dryrun;
 
             Console.WriteLine();
-            Console.WriteLine("Search packages in source...");
-            var sourcePackages = await SearchPackages(_sourceRepository, _searchString, _preReleases);
+            Console.WriteLine("Searching packages in source...");
+            var sourcePackages = await SearchPackages(Repository.Factory.GetCoreV3(_sourceRepositoryUrl), _searchString, _preReleases);
             Console.WriteLine($"Found {sourcePackages.Count()} packages");
             Console.Write("Fetching all versions for all packages");
             
@@ -100,68 +105,82 @@ namespace NuGet.Protocol.Samples
                 return;
             }
 
+            var total = versions.Count();
+            var counter = 0;
             var uploadTasks = new List<Task>();     
             foreach(var p in versions) {
                 UploadToTargetIfNotExistInTarget(p).Wait();
+                Console.WriteLine("Counter: "+ ++counter + "/" + total);
             }
             
-            //Task.WaitAll(uploadTasks.ToArray());
 
+            Console.WriteLine("-------- SUMMARY --------");
+            Console.WriteLine("Uploaded versions");
+            Console.WriteLine(string.Join(Environment.NewLine, _bag.Where(x => x.Item2).Select(x => x.Item1)));
+            Console.WriteLine();
+            Console.WriteLine("Skipped versions (already in target)");
+            Console.WriteLine(string.Join(Environment.NewLine, _bag.Where(x => !x.Item2).Select(x => x.Item1)));
+            Console.WriteLine();
+            Console.WriteLine($"Nmber of skipped nugets: {_bag.Where(x => !x.Item2).Count()}");
+            Console.WriteLine($"Nmber of downloaded nugets: {_bag.Where(x => x.Item2).Count()}");
         }
 
         private static async Task UploadToTargetIfNotExistInTarget(IPackageSearchMetadata package)
         {
             ILogger logger = NullLogger.Instance;
             CancellationToken cancellationToken = CancellationToken.None;
-            //SourceRepository sourceRepository = Repository.Factory.GetCoreV3(sourceSource);
-            FindPackageByIdResource findPackageresource = await _sourceRepository.GetResourceAsync<FindPackageByIdResource>();
+            SourceRepository sourceRepository = Repository.Factory.GetCoreV3(_sourceRepositoryUrl);
+            FindPackageByIdResource findPackageresource = await sourceRepository.GetResourceAsync<FindPackageByIdResource>();
             var cache = new SourceCacheContext();
             if (!await PackageExistInTarget(package.Identity.Id, package.Identity.Version))
             {
+                _bag.Add(($"{package.Identity.Id} {package.Identity.Version}", true));
                 // Download from source
                 //Console.WriteLine($"Downloading: {package.Identity.Id} | {package.Identity.Version}");
-                var filename = Path.GetTempFileName();
-                using(var stream = File.Open(filename, FileMode.Create)) {
-                    await findPackageresource.CopyNupkgToStreamAsync(package.Identity.Id, package.Identity.Version, stream, cache, logger, cancellationToken);
-                }
-
-                // upload to target
                 Console.WriteLine($"Uploading: {package.Identity.Id} | {package.Identity.Version}");
-                await UploadPackage(filename);
+                if (!_dryRun)
+                {
                 
-                // remove temp file
-                File.Delete(filename);
+                    var filename = Path.GetTempFileName();
+                    using(var stream = File.Open(filename, FileMode.Create)) {
+                        await findPackageresource.CopyNupkgToStreamAsync(package.Identity.Id, package.Identity.Version, stream, cache, logger, cancellationToken);
+                    }
+                    // upload to target
+                    await UploadPackage(filename);
+                    // remove temp file
+                    File.Delete(filename);
+                }
             }
             else {
-                //Console.WriteLine($"Skipping: {package.Identity.Id} | {package.Identity.Version}");
+                _bag.Add(($"{package.Identity.Id} {package.Identity.Version}", false));
             }
+            
         }
 
         private static async Task<bool> PackageExistInTarget(string packageId, NuGetVersion version) 
         {
-            ILogger logger = NullLogger.Instance;
-            CancellationToken cancellationToken = CancellationToken.None;
-            SourceCacheContext cache = new SourceCacheContext();
-            SourceRepository repository = Repository.Factory.GetCoreV3(_targetRepositoryUrl);
+            Console.Write("Id: " + packageId + " | Version: " + version + " : ");
             
-            var resource = await repository.GetResourceAsync<MetadataResource>();
-            
-            //Console.WriteLine(repository.PackageSource);
-            var result =  await resource.GetVersions(packageId, cache, logger, cancellationToken);
-            
-            Console.WriteLine(packageId + " Versions: " + string.Join('|', result) + "\n ||||" + version);
-            if (result.Any(x => x.ToString().Trim() == version.ToString().Trim()))
+            var meta = await GetPackageMetadatas(_targetRepositoryUrl, packageId, _preReleases);
+
+            foreach(var p in meta)
             {
-                Console.WriteLine("Package exists");
-                return true;
+                if (p.Identity.Version == version)
+                {
+                    Console.WriteLine("Exist");
+                    return true;
+                }
             }
-            Console.WriteLine("Package does not exist");
+            Console.WriteLine("Missing");
             return false;
         }
 
         private static async Task<IEnumerable<IPackageSearchMetadata>> GetPackageMetadatas(string nugetSource, string packageId, bool includePrereleases)
         {
             ILogger logger = NullLogger.Instance;
+
+            List<Lazy<INuGetResourceProvider>> providers = new List<Lazy<INuGetResourceProvider>>();
+            providers.AddRange(Repository.Provider.GetCoreV3());  // Add v3 API support
             CancellationToken cancellationToken = CancellationToken.None;
             SourceCacheContext cache = new SourceCacheContext();
             SourceRepository repository = Repository.Factory.GetCoreV3(nugetSource);
@@ -169,9 +188,8 @@ namespace NuGet.Protocol.Samples
 
             var result = await resource.GetMetadataAsync(
                 packageId,
-                includePrerelease: includePrereleases,
-                includeUnlisted: false,
-                cache,
+                includePrereleases,
+                false,
                 logger,
                 cancellationToken);
 
@@ -217,16 +235,11 @@ namespace NuGet.Protocol.Samples
         
         public async static Task UploadPackage(string packagePath)
         {
-            //List<Lazy<INuGetResourceProvider>> providers = new List<Lazy<INuGetResourceProvider>>();
-            //providers.AddRange(Repository.Provider.GetCoreV3());
             SourceRepository repository = Repository.Factory.GetCoreV3(_targetRepositoryUrl);
-            //PackageSource packageSource =  new PackageSource(repository);
-            //SourceRepository sourceRepository = new SourceRepository(packageSource, providers);
             using (var sourceCacheContext = new SourceCacheContext())
             {
                 PackageUpdateResource uploadResource = await repository.GetResourceAsync<PackageUpdateResource>();
-                //Console.WriteLine(uploadResource.SourceUri);
-                await uploadResource.Push(packagePath, null, 120, false, (param) => _targetApiKey, null,false,true,null, NullLogger.Instance);
+                await uploadResource.Push(packagePath, null, 120, false, (param) => _targetApiKey, null, NullLogger.Instance);
             }
         }
     }
