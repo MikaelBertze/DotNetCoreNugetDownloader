@@ -37,6 +37,8 @@ namespace NuGet.Protocol.Samples
         private static SourceRepository _sourceRepository;
         private static SourceRepository _targetRepository;
 
+        private static string _targetRepositoryUrl;
+
         private static string _targetApiKey;
         private static bool _preReleases;
 
@@ -54,6 +56,7 @@ namespace NuGet.Protocol.Samples
             
             _sourceRepository = Repository.Factory.GetCoreV3(arguments.SourceNugetRepositoryUrl);
             _targetRepository = Repository.Factory.GetCoreV3(arguments.TargetNugetRepositoryUrl);
+            _targetRepositoryUrl = arguments.TargetNugetRepositoryUrl;
             _preReleases = arguments.Prerelease;
             _targetApiKey = arguments.API_KEY;
             _searchString = arguments.SearchString;
@@ -99,10 +102,10 @@ namespace NuGet.Protocol.Samples
 
             var uploadTasks = new List<Task>();     
             foreach(var p in versions) {
-                uploadTasks.Add(UploadToTargetIfNotExistInTarget(p));
+                UploadToTargetIfNotExistInTarget(p).Wait();
             }
             
-            Task.WaitAll(uploadTasks.ToArray());
+            //Task.WaitAll(uploadTasks.ToArray());
 
         }
 
@@ -116,7 +119,7 @@ namespace NuGet.Protocol.Samples
             if (!await PackageExistInTarget(package.Identity.Id, package.Identity.Version))
             {
                 // Download from source
-                Console.WriteLine($"Downloading: {package.Identity.Id} | {package.Identity.Version}");
+                //Console.WriteLine($"Downloading: {package.Identity.Id} | {package.Identity.Version}");
                 var filename = Path.GetTempFileName();
                 using(var stream = File.Open(filename, FileMode.Create)) {
                     await findPackageresource.CopyNupkgToStreamAsync(package.Identity.Id, package.Identity.Version, stream, cache, logger, cancellationToken);
@@ -130,7 +133,7 @@ namespace NuGet.Protocol.Samples
                 File.Delete(filename);
             }
             else {
-                Console.WriteLine($"Skipping: {package.Identity.Id} | {package.Identity.Version}");
+                //Console.WriteLine($"Skipping: {package.Identity.Id} | {package.Identity.Version}");
             }
         }
 
@@ -139,17 +142,20 @@ namespace NuGet.Protocol.Samples
             ILogger logger = NullLogger.Instance;
             CancellationToken cancellationToken = CancellationToken.None;
             SourceCacheContext cache = new SourceCacheContext();
-            SourceRepository repository = _targetRepository;
-            FindPackageByIdResource resource = await repository.GetResourceAsync<FindPackageByIdResource>();
-            Console.WriteLine(repository.PackageSource);
-            Console.WriteLine(packageId);
-            var result =  await resource.GetAllVersionsAsync(packageId, cache, logger, cancellationToken);
-            Console.WriteLine(string.Join('|', result));
-            Console.WriteLine(version);
+            SourceRepository repository = Repository.Factory.GetCoreV3(_targetRepositoryUrl);
+            
+            var resource = await repository.GetResourceAsync<MetadataResource>();
+            
+            //Console.WriteLine(repository.PackageSource);
+            var result =  await resource.GetVersions(packageId, cache, logger, cancellationToken);
+            
+            Console.WriteLine(packageId + " Versions: " + string.Join('|', result) + "\n ||||" + version);
             if (result.Any(x => x.ToString().Trim() == version.ToString().Trim()))
             {
+                Console.WriteLine("Package exists");
                 return true;
             }
+            Console.WriteLine("Package does not exist");
             return false;
         }
 
@@ -213,12 +219,13 @@ namespace NuGet.Protocol.Samples
         {
             //List<Lazy<INuGetResourceProvider>> providers = new List<Lazy<INuGetResourceProvider>>();
             //providers.AddRange(Repository.Provider.GetCoreV3());
-            //PackageSource packageSource =  new PackageSource(nugetRepositoryUrl);
+            SourceRepository repository = Repository.Factory.GetCoreV3(_targetRepositoryUrl);
+            //PackageSource packageSource =  new PackageSource(repository);
             //SourceRepository sourceRepository = new SourceRepository(packageSource, providers);
             using (var sourceCacheContext = new SourceCacheContext())
             {
-                PackageUpdateResource uploadResource = await _targetRepository.GetResourceAsync<PackageUpdateResource>();
-                Console.WriteLine(uploadResource.SourceUri);
+                PackageUpdateResource uploadResource = await repository.GetResourceAsync<PackageUpdateResource>();
+                //Console.WriteLine(uploadResource.SourceUri);
                 await uploadResource.Push(packagePath, null, 120, false, (param) => _targetApiKey, null,false,true,null, NullLogger.Instance);
             }
         }
