@@ -7,7 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NuGet.Protocol" Version="5.7.0" />
+    <!-- <PackageReference Include="NuGet.Protocol" Version="5.8.0-preview.1" /> -->
+    <PackageReference Include="CommandLineParser" Version="2.8.0" />
+    <PackageReference Include="NuGet.Protocol.Core.V3" Version="4.2.0" />
   </ItemGroup>
 
 </Project>

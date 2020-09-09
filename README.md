@@ -1,10 +1,7 @@
 # DotNetCoreNugetDownloader
-A tool for downloading .net Core nugets. Intended to be used for creating .net Core only nuget feeds.
+A tool for downloading nugets. Intended to be used for creating a nuget.org filtered mirror.
 
-1. Clone or download this repo
-2. Create a folder named `packages` (in the repo root).
-3. Run `dotnet run` from command line 
+The tool will upload all nugets found by the provided search string on the source nuget feed and upload these to the target nuget feed. All versions in the source feed will be copied to the target feed.
 
-This will search for nugets with owner 'dotnetframework'. For each nuget, all versions that are not tagged as prerelease will be downloaded. Total download size is about 10GB.
 
 
