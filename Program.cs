@@ -32,7 +32,10 @@ namespace NuGet.Protocol.Samples
 
         [Option('d', "dryrun", Required=false, HelpText="No upload to target feed", Default=false)]
         public bool Dryrun {get;set;}
-    }
+
+        [Option('f', "force", Required = false, HelpText = "Force \"Yes\", no questions.", Default = false)]
+        public bool Force { get; set; }
+  }
 
     public class Program
     {
@@ -48,9 +51,9 @@ namespace NuGet.Protocol.Samples
         private static string _searchString;
 
         private static ConcurrentBag<(string, bool)> _bag;
+        private static bool _force;
 
-
-        public static async Task Main(string[] args)
+    public static async Task Main(string[] args)
         {
             CopyToFeedOptions arguments = null;
             var result = Parser.Default.ParseArguments<CopyToFeedOptions>(args).WithParsed(x => arguments = x);
@@ -65,6 +68,7 @@ namespace NuGet.Protocol.Samples
             _targetApiKey = arguments.API_KEY;
             _searchString = arguments.SearchString;
             _dryRun = arguments.Dryrun;
+            _force = arguments.Force;
 
             Console.WriteLine();
             Console.WriteLine("Searching packages in source...");
@@ -99,12 +103,15 @@ namespace NuGet.Protocol.Samples
             }
             Console.WriteLine();
             Console.WriteLine($"Total number of nugets: {versions.Count()}");
-            Console.WriteLine($"Continue filtering towards target field? [Y/N]");
-            var a = Console.ReadLine().ToLower();
-            if (a == "n") {
+            if (!_force)
+            {
+              Console.WriteLine($"Continue filtering towards target field? [Y/N]");
+              var a = Console.ReadLine().ToLower();
+              if (a == "n")
+              {
                 return;
+              }
             }
-
             var total = versions.Count();
             var counter = 0;
             var uploadTasks = new List<Task>();     
@@ -121,8 +128,8 @@ namespace NuGet.Protocol.Samples
             Console.WriteLine("Skipped versions (already in target)");
             Console.WriteLine(string.Join(Environment.NewLine, _bag.Where(x => !x.Item2).Select(x => x.Item1)));
             Console.WriteLine();
-            Console.WriteLine($"Nmber of skipped nugets: {_bag.Where(x => !x.Item2).Count()}");
-            Console.WriteLine($"Nmber of downloaded nugets: {_bag.Where(x => x.Item2).Count()}");
+            Console.WriteLine($"Number of skipped nugets: {_bag.Where(x => !x.Item2).Count()}");
+            Console.WriteLine($"Number of downloaded nugets: {_bag.Where(x => x.Item2).Count()}");
         }
 
         private static async Task UploadToTargetIfNotExistInTarget(IPackageSearchMetadata package)
